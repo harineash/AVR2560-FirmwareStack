@@ -1,53 +1,45 @@
 #include "keypad.h"
+#include "timer.h"
 
-static void delay_short(void)
-{
-    volatile uint16_t i;
-
-    for (i = 0; i < 300; i++)
-    {
-        __asm__ __volatile__("nop");
-    }
-}
-
-void keypad_init(Keypad_Config *k)
+void keypad_init(Keypad_Config *keypad)
 {
     uint8_t i;
 
     for (i = 0; i < 4; i++)
     {
-        gpio_pinMode(k->row_port, k->row_pins[i], OUTPUT);
-        gpio_pinWrite(k->row_port, k->row_pins[i], HIGH);
+        gpio_pinMode(keypad->row_port, keypad->row_pins[i], OUTPUT);
+        gpio_pinWrite(keypad->row_port, keypad->row_pins[i], HIGH);
 
-        gpio_pinMode(k->col_port, k->col_pins[i], INPUT);
-        gpio_pinWrite(k->col_port, k->col_pins[i], HIGH);
+        gpio_pinMode(keypad->col_port, keypad->col_pins[i], INPUT);
+        gpio_pinWrite(keypad->col_port, keypad->col_pins[i], HIGH);
     }
 }
 
-char keypad_getkey(Keypad_Config *k)
+char keypad_getkey(Keypad_Config *keypad)
 {
-    uint8_t r;
-    uint8_t c;
+    uint8_t row;
+    uint8_t col;
+    uint8_t i;
 
-    for (r = 0; r < 4; r++)
+    for (row = 0; row < 4; row++)
     {
-        for (uint8_t i = 0; i < 4; i++)
+        for (i = 0; i < 4; i++)
         {
-            gpio_pinWrite(k->row_port, k->row_pins[i], HIGH);
+            gpio_pinWrite(keypad->row_port, keypad->row_pins[i], HIGH);
         }
 
-        gpio_pinWrite(k->row_port, k->row_pins[r], LOW);
-        delay_short();
+        gpio_pinWrite(keypad->row_port, keypad->row_pins[row], LOW);
+        timer_delay_ms(1);
 
-        for (c = 0; c < 4; c++)
+        for (col = 0; col < 4; col++)
         {
-            if (gpio_pinRead(k->col_port, k->col_pins[c]) == LOW)
+            if (gpio_pinRead(keypad->col_port, keypad->col_pins[col]) == LOW)
             {
-                delay_short();
+                timer_delay_ms(10);
 
-                if (gpio_pinRead(k->col_port, k->col_pins[c]) == LOW)
+                if (gpio_pinRead(keypad->col_port, keypad->col_pins[col]) == LOW)
                 {
-                    return k->keymap[(r * 4) + c];
+                    return keypad->keymap[(row * 4U) + col];
                 }
             }
         }

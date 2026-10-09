@@ -1,4 +1,3 @@
-
 #include "seven_segment.h"
 #include "timer.h"
 
@@ -8,143 +7,71 @@ static const uint8_t segment_code[10] =
     0x6D, 0x7D, 0x07, 0x7F, 0x6F
 };
 
-static void digit_select(
-    SevenSegment_Config *s,
-    uint8_t mask
-)
+static void set_mask(GPIO_Port port, uint8_t mask, uint8_t value)
 {
-    gpio_pinWrite(s->digit_port, 0, LOW);
-    gpio_pinWrite(s->digit_port, 1, LOW);
+    uint8_t pin;
 
-    if (mask & s->tens_mask)
+    for (pin = 0; pin < 8; pin++)
     {
-        gpio_pinWrite(
-            s->digit_port,
-            (s->tens_mask == 0) ? 0 :
-            (s->tens_mask == 1 ? 0 :
-            (s->tens_mask & 0x01 ? 0 :
-            (s->tens_mask & 0x02 ? 1 :
-            (s->tens_mask & 0x04 ? 2 :
-            (s->tens_mask & 0x08 ? 3 :
-            (s->tens_mask & 0x10 ? 4 :
-            (s->tens_mask & 0x20 ? 5 :
-            (s->tens_mask & 0x40 ? 6 : 7)))))))),
-            HIGH
-        );
+        if (mask & (1U << pin))
+        {
+            gpio_pinWrite(port, pin, value);
+        }
     }
 }
 
-void seven_segment_init(SevenSegment_Config *s)
+static void show_digit(SevenSegment_Config *display, uint8_t digit, uint8_t mask)
 {
-    uint8_t i;
+    uint8_t pattern = segment_code[digit];
 
-    for (i = 0; i < 8; i++)
+    seven_segment_off(display);
+
+    if (display->common_type == COMMON_ANODE)
     {
-        gpio_pinMode(s->segment_port, i, OUTPUT);
+        pattern = (uint8_t)~pattern;
     }
 
-    for (i = 0; i < 8; i++)
+    gpio_portWrite(display->segment_port, pattern);
+    set_mask(display->digit_port, mask, HIGH);
+    timer_delay_ms(1);
+    set_mask(display->digit_port, mask, LOW);
+}
+
+void seven_segment_init(SevenSegment_Config *display)
+{
+    uint8_t pin;
+
+    for (pin = 0; pin < 8; pin++)
     {
-        if ((s->tens_mask | s->units_mask) & (1U << i))
+        gpio_pinMode(display->segment_port, pin, OUTPUT);
+    }
+
+    for (pin = 0; pin < 8; pin++)
+    {
+        if ((display->tens_mask | display->units_mask) & (1U << pin))
         {
-            gpio_pinMode(s->digit_port, i, OUTPUT);
+            gpio_pinMode(display->digit_port, pin, OUTPUT);
         }
     }
 
-    seven_segment_off(s);
+    seven_segment_off(display);
 }
 
-void seven_segment_off(SevenSegment_Config *s)
+void seven_segment_off(SevenSegment_Config *display)
 {
-    uint8_t i;
-
-    for (i = 0; i < 8; i++)
-    {
-        if ((s->tens_mask | s->units_mask) & (1U << i))
-        {
-            gpio_pinWrite(s->digit_port, i, LOW);
-        }
-    }
-
-    gpio_portWrite(
-        s->segment_port,
-        (s->common_type == COMMON_ANODE) ? 0xFF : 0x00
-    );
+    set_mask(display->digit_port,
+             (uint8_t)(display->tens_mask | display->units_mask), LOW);
+    gpio_portWrite(display->segment_port,
+                   (display->common_type == COMMON_ANODE) ? 0xFF : 0x00);
 }
 
-void seven_segment_show_number(
-    SevenSegment_Config *s,
-    uint8_t number
-)
+void seven_segment_show_number(SevenSegment_Config *display, uint8_t number)
 {
-    uint8_t tens;
-    uint8_t units;
-    uint8_t pattern;
-    uint8_t i;
-
     if (number > 99)
     {
         return;
     }
 
-    tens = number / 10;
-    units = number % 10;
-
-    /* Display tens digit */
-    for (i = 0; i < 8; i++)
-    {
-        if ((s->tens_mask | s->units_mask) & (1U << i))
-        {
-            gpio_pinWrite(s->digit_port, i, LOW);
-        }
-    }
-
-    pattern = segment_code[tens];
-
-    if (s->common_type == COMMON_ANODE)
-    {
-        pattern = (uint8_t)~pattern;
-    }
-
-    gpio_portWrite(s->segment_port, pattern);
-
-    for (i = 0; i < 8; i++)
-    {
-        if (s->tens_mask & (1U << i))
-        {
-            gpio_pinWrite(s->digit_port, i, HIGH);
-        }
-    }
-
-    timer_delay_ms(1);
-
-    /* Display units digit */
-    for (i = 0; i < 8; i++)
-    {
-        if ((s->tens_mask | s->units_mask) & (1U << i))
-        {
-            gpio_pinWrite(s->digit_port, i, LOW);
-        }
-    }
-
-    pattern = segment_code[units];
-
-    if (s->common_type == COMMON_ANODE)
-    {
-        pattern = (uint8_t)~pattern;
-    }
-
-    gpio_portWrite(s->segment_port, pattern);
-
-    for (i = 0; i < 8; i++)
-    {
-        if (s->units_mask & (1U << i))
-        {
-            gpio_pinWrite(s->digit_port, i, HIGH);
-        }
-    }
-
-    timer_delay_ms(1);
-
-    seven_segment_off(s);
+    show_digit(display, (uint8_t)(number / 10U), display->tens_mask);
+    show_digit(display, (uint8_t)(number % 10U), display->units_mask);
 }

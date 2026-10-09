@@ -8,7 +8,7 @@ void delay_ms(uint16_t ms)
 
 void delay_s(uint16_t seconds)
 {
-    for (uint16_t i = 0; i < seconds; i++)
+    while (seconds--)
     {
         timer_delay_ms(1000);
     }

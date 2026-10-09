@@ -1,16 +1,16 @@
 #include "switch.h"
 
-// Initialize the switch GPIO pin
-void switch_init(Switch_Config *s)
+void switch_init(Switch_Config *sw)
 {
-    gpio_pinMode(s->port, s->pin, INPUT);
+    gpio_pinMode(sw->port, sw->pin, INPUT);
 
-    if (s->pullup)
-        gpio_pinWrite(s->port, s->pin, HIGH);
+    if (sw->pullup)
+    {
+        gpio_pinWrite(sw->port, sw->pin, HIGH);
+    }
 }
 
-// Read the current switch state
-uint8_t switch_read(Switch_Config *s)
+uint8_t switch_read(Switch_Config *sw)
 {
-    return gpio_pinRead(s->port, s->pin) == s->active_level;
+    return (uint8_t)(gpio_pinRead(sw->port, sw->pin) == sw->active_level);
 }

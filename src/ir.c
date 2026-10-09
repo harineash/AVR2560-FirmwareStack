@@ -12,10 +12,5 @@ uint8_t ir_read(IR_Config *ir)
 
 uint8_t ir_detected(IR_Config *ir)
 {
-    if (gpio_pinRead(ir->port, ir->pin) == ir->active_level)
-    {
-        return 1;
-    }
-
-    return 0;
+    return (uint8_t)(ir_read(ir) == ir->active_level);
 }

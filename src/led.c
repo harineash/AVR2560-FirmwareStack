@@ -1,26 +1,22 @@
 #include "led.h"
 
-// Initialize the LED GPIO pin
-void led_init(LED_Config *l)
+void led_init(LED_Config *led)
 {
-    gpio_pinMode(l->port, l->pin, OUTPUT);
-    led_off(l);
+    gpio_pinMode(led->port, led->pin, OUTPUT);
+    led_off(led);
 }
 
-// Turn the LED on
-void led_on(LED_Config *l)
+void led_on(LED_Config *led)
 {
-    gpio_pinWrite(l->port, l->pin, l->active_level);
+    gpio_pinWrite(led->port, led->pin, led->active_level);
 }
 
-// Turn the LED off
-void led_off(LED_Config *l)
+void led_off(LED_Config *led)
 {
-    gpio_pinWrite(l->port, l->pin, (uint8_t)!l->active_level);
+    gpio_pinWrite(led->port, led->pin, (uint8_t)!led->active_level);
 }
 
-// Toggle the current state of the LED
-void led_toggle(LED_Config *l)
+void led_toggle(LED_Config *led)
 {
-    gpio_pinToggle(l->port, l->pin);
+    gpio_pinToggle(led->port, led->pin);
 }
