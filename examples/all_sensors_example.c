@@ -52,5 +52,9 @@ int main(void)
         distance_cm = ultrasonic_read_cm(&sonar);
         ir_status = ir_detected(&ir);
         key = keypad_getkey(&keypad);
+        (void)adc_value;
+        (void)distance_cm;
+        (void)ir_status;
+        (void)key;
     }
 }

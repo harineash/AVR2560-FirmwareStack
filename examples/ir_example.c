@@ -3,26 +3,21 @@
 
 int main(void)
 {
-    IR_Config ir =
-    {
-        .port = GPIO_PORTA,
-        .pin = 0,
-        .active_level = IR_ACTIVE_LOW
-    };
+    IR_Config ir = { GPIO_PORTA, 0, IR_ACTIVE_LOW };
+    LED_Config led = { GPIO_PORTF, 0, HIGH };
 
-    gpio_portMode(GPIO_PORTF, 0x01);
     ir_init(&ir);
-    led_init(GPIO_PORTF, 0x01);
+    led_init(&led);
 
     while (1)
     {
         if (ir_detected(&ir))
         {
-            led_on();
+            led_on(&led);
         }
         else
         {
-            led_off();
+            led_off(&led);
         }
     }
 }

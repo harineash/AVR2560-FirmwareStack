@@ -1,5 +1,4 @@
 #include "ultrasonic.h"
-#include "led.h"
 
 int main(void)
 {
@@ -18,6 +17,7 @@ int main(void)
     while (1)
     {
         distance_cm = ultrasonic_read_cm(&sonar);
+        (void)distance_cm;
 
         /* distance_cm == 0 means timeout/no valid echo */
     }

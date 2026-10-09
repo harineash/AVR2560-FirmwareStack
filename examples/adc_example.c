@@ -16,5 +16,6 @@ int main(void)
     while (1)
     {
         adc_value = adc_read(&adc);
+        (void)adc_value;
     }
 }

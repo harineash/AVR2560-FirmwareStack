@@ -18,5 +18,6 @@ int main(void)
     while (1)
     {
         key = keypad_getkey(&keypad);
+        (void)key;
     }
 }
