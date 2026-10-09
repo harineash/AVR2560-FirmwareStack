@@ -13,7 +13,7 @@ typedef struct
     const char *keymap;
 } Keypad_Config;
 
-void keypad_init(Keypad_Config *k);
-char keypad_getkey(Keypad_Config *k);
+void keypad_init(Keypad_Config *keypad);
+char keypad_getkey(Keypad_Config *keypad);
 
 #endif
