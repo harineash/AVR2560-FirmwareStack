@@ -1,161 +1,150 @@
+
 #include "seven_segment.h"
+#include "timer.h"
 
-
-/* Common-cathode 7-segment patterns */
-
-static const uint8_t cc[10] =
+static const uint8_t segment_code[10] =
 {
-    0x3F,   /* 0 */
-    0x06,   /* 1 */
-    0x5B,   /* 2 */
-    0x4F,   /* 3 */
-    0x66,   /* 4 */
-    0x6D,   /* 5 */
-    0x7D,   /* 6 */
-    0x07,   /* 7 */
-    0x7F,   /* 8 */
-    0x6F    /* 9 */
+    0x3F, 0x06, 0x5B, 0x4F, 0x66,
+    0x6D, 0x7D, 0x07, 0x7F, 0x6F
 };
 
-
-static uint8_t digit_pattern(uint8_t digit)
+static void digit_select(
+    SevenSegment_Config *s,
+    uint8_t mask
+)
 {
-    if (digit > 9)
+    gpio_pinWrite(s->digit_port, 0, LOW);
+    gpio_pinWrite(s->digit_port, 1, LOW);
+
+    if (mask & s->tens_mask)
     {
-        return 0x00;
-    }
-
-    return cc[digit];
-}
-
-
-/* Set or clear only the digit-enable pins, leaving the rest of the port alone */
-static void digits_write(SevenSegment_Config *s, uint8_t mask)
-{
-    uint8_t all = s->tens_mask | s->units_mask;
-
-    for (uint8_t b = 0; b < 8; b++)
-    {
-        if (all & (1U << b))
-        {
-            gpio_pinWrite(s->digit_port, b, (mask >> b) & 1U);
-        }
+        gpio_pinWrite(
+            s->digit_port,
+            (s->tens_mask == 0) ? 0 :
+            (s->tens_mask == 1 ? 0 :
+            (s->tens_mask & 0x01 ? 0 :
+            (s->tens_mask & 0x02 ? 1 :
+            (s->tens_mask & 0x04 ? 2 :
+            (s->tens_mask & 0x08 ? 3 :
+            (s->tens_mask & 0x10 ? 4 :
+            (s->tens_mask & 0x20 ? 5 :
+            (s->tens_mask & 0x40 ? 6 : 7)))))))),
+            HIGH
+        );
     }
 }
-
 
 void seven_segment_init(SevenSegment_Config *s)
 {
-    /* Segment lines are outputs */
-    gpio_portMode(s->segment_port, 0xFF);
+    uint8_t i;
 
-    /* Digit control lines are outputs */
-    for (uint8_t b = 0; b < 8; b++)
+    for (i = 0; i < 8; i++)
     {
-        if ((s->tens_mask | s->units_mask) & (1U << b))
-        {
-            gpio_pinMode(s->digit_port, b, OUTPUT);
-        }
+        gpio_pinMode(s->segment_port, i, OUTPUT);
     }
 
-    s->number = 0;
-    s->digit = 0;
+    for (i = 0; i < 8; i++)
+    {
+        if ((s->tens_mask | s->units_mask) & (1U << i))
+        {
+            gpio_pinMode(s->digit_port, i, OUTPUT);
+        }
+    }
 
     seven_segment_off(s);
 }
 
-
 void seven_segment_off(SevenSegment_Config *s)
 {
-    /* Turn both digits OFF */
+    uint8_t i;
 
-    digits_write(s, 0x00);
-
-    /* Turn all segments OFF */
-
-    if (s->common_type == COMMON_ANODE)
+    for (i = 0; i < 8; i++)
     {
-        gpio_portWrite(s->segment_port, 0xFF);
+        if ((s->tens_mask | s->units_mask) & (1U << i))
+        {
+            gpio_pinWrite(s->digit_port, i, LOW);
+        }
     }
-    else
-    {
-        gpio_portWrite(s->segment_port, 0x00);
-    }
+
+    gpio_portWrite(
+        s->segment_port,
+        (s->common_type == COMMON_ANODE) ? 0xFF : 0x00
+    );
 }
 
-
-void seven_segment_display(
+void seven_segment_show_number(
     SevenSegment_Config *s,
     uint8_t number
 )
 {
+    uint8_t tens;
+    uint8_t units;
+    uint8_t pattern;
+    uint8_t i;
+
     if (number > 99)
     {
         return;
     }
 
-    /*
-     * Store the number.
-     *
-     * Actual multiplexing is done by
-     * seven_segment_refresh().
-     */
+    tens = number / 10;
+    units = number % 10;
 
-    s->number = number;
-}
-
-
-void seven_segment_refresh(SevenSegment_Config *s)
-{
-    uint8_t tens;
-    uint8_t units;
-    uint8_t pattern;
-
-    tens = s->number / 10;
-    units = s->number % 10;
-
-    /* Turn both digits OFF before changing segments */
-
-    digits_write(s, 0x00);
-
-    if (s->digit == 0)
+    /* Display tens digit */
+    for (i = 0; i < 8; i++)
     {
-        /* Tens digit */
-
-        pattern = digit_pattern(tens);
-
-        if (s->common_type == COMMON_ANODE)
+        if ((s->tens_mask | s->units_mask) & (1U << i))
         {
-            pattern = (uint8_t)~pattern;
+            gpio_pinWrite(s->digit_port, i, LOW);
         }
-
-        gpio_portWrite(
-            s->segment_port,
-            pattern
-        );
-
-        digits_write(s, s->tens_mask);
-
-        s->digit = 1;
     }
-    else
+
+    pattern = segment_code[tens];
+
+    if (s->common_type == COMMON_ANODE)
     {
-        /* Units digit */
-
-        pattern = digit_pattern(units);
-
-        if (s->common_type == COMMON_ANODE)
-        {
-            pattern = (uint8_t)~pattern;
-        }
-
-        gpio_portWrite(
-            s->segment_port,
-            pattern
-        );
-
-        digits_write(s, s->units_mask);
-
-        s->digit = 0;
+        pattern = (uint8_t)~pattern;
     }
+
+    gpio_portWrite(s->segment_port, pattern);
+
+    for (i = 0; i < 8; i++)
+    {
+        if (s->tens_mask & (1U << i))
+        {
+            gpio_pinWrite(s->digit_port, i, HIGH);
+        }
+    }
+
+    timer_delay_ms(1);
+
+    /* Display units digit */
+    for (i = 0; i < 8; i++)
+    {
+        if ((s->tens_mask | s->units_mask) & (1U << i))
+        {
+            gpio_pinWrite(s->digit_port, i, LOW);
+        }
+    }
+
+    pattern = segment_code[units];
+
+    if (s->common_type == COMMON_ANODE)
+    {
+        pattern = (uint8_t)~pattern;
+    }
+
+    gpio_portWrite(s->segment_port, pattern);
+
+    for (i = 0; i < 8; i++)
+    {
+        if (s->units_mask & (1U << i))
+        {
+            gpio_pinWrite(s->digit_port, i, HIGH);
+        }
+    }
+
+    timer_delay_ms(1);
+
+    seven_segment_off(s);
 }
