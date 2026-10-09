@@ -29,7 +29,7 @@ static Keypad_Config keypad =
     GPIO_PORTA,
     {4, 5, 6, 7},
     {0, 1, 2, 3},
-    "123A456B789C*0#D"
+    "123A456#789C*0BD"
 };
 
 static LCD_Config lcd =
