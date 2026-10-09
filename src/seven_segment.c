@@ -20,21 +20,21 @@ static void set_mask(GPIO_Port port, uint8_t mask, uint8_t value)
     }
 }
 
-static void show_digit(SevenSegment_Config *display, uint8_t digit, uint8_t mask)
+static void show_digit(
+    SevenSegment_Config *display,
+    uint8_t digit,
+    uint8_t mask)
 {
-    uint8_t pattern = segment_code[digit];
-
     seven_segment_off(display);
 
-    if (display->common_type == COMMON_ANODE)
-    {
-        pattern = (uint8_t)~pattern;
-    }
+    gpio_portWrite(display->segment_port, segment_code[digit]);
 
-    gpio_portWrite(display->segment_port, pattern);
-    set_mask(display->digit_port, mask, HIGH);
-    timer_delay_ms(1);
+    /* Common-cathode digit enabled LOW */
     set_mask(display->digit_port, mask, LOW);
+    timer_delay_ms(1);
+
+    /* Disable digit */
+    set_mask(display->digit_port, mask, HIGH);
 }
 
 void seven_segment_init(SevenSegment_Config *display)
@@ -59,19 +59,35 @@ void seven_segment_init(SevenSegment_Config *display)
 
 void seven_segment_off(SevenSegment_Config *display)
 {
-    set_mask(display->digit_port,
-             (uint8_t)(display->tens_mask | display->units_mask), LOW);
-    gpio_portWrite(display->segment_port,
-                   (display->common_type == COMMON_ANODE) ? 0xFF : 0x00);
+    /* Disable both common-cathode digits */
+    set_mask(
+        display->digit_port,
+        (uint8_t)(display->tens_mask | display->units_mask),
+        HIGH
+    );
+
+    gpio_portWrite(display->segment_port, 0x00);
 }
 
-void seven_segment_show_number(SevenSegment_Config *display, uint8_t number)
+void seven_segment_show_number(
+    SevenSegment_Config *display,
+    uint8_t number)
 {
     if (number > 99)
     {
+        seven_segment_off(display);
         return;
     }
 
-    show_digit(display, (uint8_t)(number / 10U), display->tens_mask);
-    show_digit(display, (uint8_t)(number % 10U), display->units_mask);
+    show_digit(
+        display,
+        (uint8_t)(number / 10U),
+        display->tens_mask
+    );
+
+    show_digit(
+        display,
+        (uint8_t)(number % 10U),
+        display->units_mask
+    );
 }
