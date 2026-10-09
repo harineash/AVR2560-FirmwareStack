@@ -219,8 +219,7 @@ static void show_distance(uint16_t cm, ParkingStatus status)
 
 static void update_buzzer(ParkingStatus status, uint16_t phase)
 {
-    uint16_t period;
-    uint16_t on_time;
+    uint16_t position;
 
     if (status == STATUS_SAFE || status == STATUS_NO_ECHO)
     {
@@ -235,37 +234,61 @@ static void update_buzzer(ParkingStatus status, uint16_t phase)
         return;
     }
 
-    switch (status)
+    if (status == STATUS_CAUTION)
     {
-        case STATUS_CAUTION:
-            period = 800;
-            on_time = 120;
-            break;
+        position = phase % 800U;
 
-        case STATUS_WARNING:
-            period = 350;
-            on_time = 120;
-            break;
-
-        case STATUS_VERY_CLOSE:
-            period = 180;
-            on_time = 100;
-            break;
-
-        default:
+        if (position < 100U)
+        {
+            pwm_setDuty(&buzzer, 40);
+            pwm_start(&buzzer);
+        }
+        else
+        {
             pwm_stop(&buzzer);
-            return;
+        }
+
+        return;
     }
 
-    if ((phase % period) < on_time)
+    if (status == STATUS_WARNING)
     {
-        pwm_setDuty(&buzzer, 40);
-        pwm_start(&buzzer);
+        position = phase % 500U;
+
+        if (position < 70U ||
+            (position >= 140U && position < 210U))
+        {
+            pwm_setDuty(&buzzer, 40);
+            pwm_start(&buzzer);
+        }
+        else
+        {
+            pwm_stop(&buzzer);
+        }
+
+        return;
     }
-    else
+
+    if (status == STATUS_VERY_CLOSE)
     {
-        pwm_stop(&buzzer);
+        position = phase % 300U;
+
+        if (position < 50U ||
+            (position >= 80U && position < 130U) ||
+            (position >= 160U && position < 210U))
+        {
+            pwm_setDuty(&buzzer, 40);
+            pwm_start(&buzzer);
+        }
+        else
+        {
+            pwm_stop(&buzzer);
+        }
+
+        return;
     }
+
+    pwm_stop(&buzzer);
 }
 
 int main(void)
@@ -362,18 +385,16 @@ int main(void)
 
             status = get_distance_status(distance_cm);
 
-            if (distance_cm > 0)
+            if (distance_cm > 99U)
             {
-                seven_segment_show_number(
-                    &display,
-                    (distance_cm > 99U)
-                        ? 99U
-                        : (uint8_t)distance_cm
-                );
+                seven_segment_show_number(&display, 99);
             }
             else
             {
-                seven_segment_off(&display);
+                seven_segment_show_number(
+                    &display,
+                    (uint8_t)distance_cm
+                );
             }
 
             update_buzzer(status, phase_ms);
