@@ -1,97 +1,57 @@
 #include "keypad.h"
-#include "timer.h"
 
-#define KEYPAD_SETTLE_US    5
-#define KEYPAD_DEBOUNCE_MS  20
-
-static const char keys[4][4] =
+static void delay_short(void)
 {
-    {'1', '2', '3', 'A'},
-    {'4', '5', '6', 'B'},
-    {'7', '8', '9', 'C'},
-    {'*', '0', '#', 'D'}
-};
+    volatile uint16_t i;
 
-/**
- * @brief Initialize the 4x4 keypad.
- *
- * @param k Keypad configuration.
- */
+    for (i = 0; i < 300; i++)
+    {
+        __asm__ __volatile__("nop");
+    }
+}
+
 void keypad_init(Keypad_Config *k)
 {
-    uint8_t idle = k->active_low ? HIGH : LOW;
+    uint8_t i;
 
-    for (uint8_t i = 0; i < 4; i++)
+    for (i = 0; i < 4; i++)
     {
-        gpio_pinMode(k->row_port, k->row_start + i, OUTPUT);
-        gpio_pinWrite(k->row_port, k->row_start + i, idle);
-    }
+        gpio_pinMode(k->row_port, k->row_pins[i], OUTPUT);
+        gpio_pinWrite(k->row_port, k->row_pins[i], HIGH);
 
-    for (uint8_t i = 0; i < 4; i++)
-    {
-        gpio_pinMode(k->column_port, k->column_start + i, INPUT);
-
-        /* active low: idle columns are held HIGH by the internal pull-up */
-        if (k->active_low)
-        {
-            gpio_pinWrite(k->column_port, k->column_start + i, HIGH);
-        }
+        gpio_pinMode(k->col_port, k->col_pins[i], INPUT);
+        gpio_pinWrite(k->col_port, k->col_pins[i], HIGH);
     }
 }
 
-/* Drive one row active and check one column; only touches the keypad pins */
-static uint8_t key_down(Keypad_Config *k, uint8_t r, uint8_t c)
+char keypad_getkey(Keypad_Config *k)
 {
-    uint8_t active = k->active_low ? LOW : HIGH;
-    uint8_t v;
+    uint8_t r;
+    uint8_t c;
 
-    gpio_pinWrite(k->row_port, k->row_start + r, active);
-    timer_delay_us(KEYPAD_SETTLE_US);
-
-    v = gpio_pinRead(k->column_port, k->column_start + c);
-
-    gpio_pinWrite(k->row_port, k->row_start + r, (uint8_t)!active);
-
-    return v == active;
-}
-
-/**
- * @brief Scan the keypad and return the pressed key.
- *
- * The key is debounced and returned once per press:
- * this waits until the key is released.
- *
- * @param k Keypad configuration.
- * @return Character corresponding to the pressed key,
- *         or 0 if no key is pressed.
- */
-char keypad_getKey(Keypad_Config *k)
-{
-    for (uint8_t r = 0; r < 4; r++)
+    for (r = 0; r < 4; r++)
     {
-        for (uint8_t c = 0; c < 4; c++)
+        for (uint8_t i = 0; i < 4; i++)
         {
-            if (!key_down(k, r, c))
+            gpio_pinWrite(k->row_port, k->row_pins[i], HIGH);
+        }
+
+        gpio_pinWrite(k->row_port, k->row_pins[r], LOW);
+        delay_short();
+
+        for (c = 0; c < 4; c++)
+        {
+            if (gpio_pinRead(k->col_port, k->col_pins[c]) == LOW)
             {
-                continue;
+                delay_short();
+
+                if (gpio_pinRead(k->col_port, k->col_pins[c]) == LOW)
+                {
+                    return k->keymap[(r * 4) + c];
+                }
             }
-
-            timer_delay_ms(KEYPAD_DEBOUNCE_MS);
-
-            if (!key_down(k, r, c))
-            {
-                return 0;
-            }
-
-            while (key_down(k, r, c))
-            {
-            }
-
-            timer_delay_ms(KEYPAD_DEBOUNCE_MS);
-
-            return keys[r][c];
         }
     }
 
-    return 0;
+    return '\0';
 }

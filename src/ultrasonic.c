@@ -1,57 +1,58 @@
 #include "ultrasonic.h"
-#include "timer.h"
+
+#define F_CPU 16000000UL
+
+static volatile uint8_t *R(uint16_t a)
+{
+    return (volatile uint8_t *)a;
+}
+
+static void delay_us(uint16_t us)
+{
+    volatile uint16_t i;
+
+    while (us--)
+    {
+        for (i = 0; i < (F_CPU / 4000000UL); i++)
+        {
+            __asm__ __volatile__("nop");
+        }
+    }
+}
 
 void ultrasonic_init(Ultrasonic_Config *u)
 {
-    gpio_pinMode(u->trig_port, u->trig_pin, OUTPUT);
+    gpio_pinMode(u->trigger_port, u->trigger_pin, OUTPUT);
     gpio_pinMode(u->echo_port, u->echo_pin, INPUT);
-    gpio_pinWrite(u->trig_port, u->trig_pin, LOW);
+    gpio_pinWrite(u->trigger_port, u->trigger_pin, LOW);
 }
 
-uint16_t ultrasonic_readDistance(Ultrasonic_Config *u)
+uint16_t ultrasonic_read_cm(Ultrasonic_Config *u)
 {
-    /* Timer1, normal mode, 16 MHz / 8 = 0.5 us per tick */
-    Timer_Config t = { TIMER1, TIMER_NORMAL, PRESCALER_8, 0 };
+    uint32_t timeout = 0;
+    uint32_t pulse = 0;
 
-    uint16_t timeout_us = (u->timeout_us > 32767) ? 32767 : u->timeout_us;
-    uint16_t timeout_ticks = (uint16_t)(timeout_us * 2);
-    uint16_t ticks;
+    gpio_pinWrite(u->trigger_port, u->trigger_pin, LOW);
+    delay_us(2);
+    gpio_pinWrite(u->trigger_port, u->trigger_pin, HIGH);
+    delay_us(10);
+    gpio_pinWrite(u->trigger_port, u->trigger_pin, LOW);
 
-    /* 10 us trigger pulse */
-    gpio_pinWrite(u->trig_port, u->trig_pin, LOW);
-    timer_delay_us(2);
-    gpio_pinWrite(u->trig_port, u->trig_pin, HIGH);
-    timer_delay_us(10);
-    gpio_pinWrite(u->trig_port, u->trig_pin, LOW);
-
-    timer_init(&t);
-    timer_start(&t);
-
-    /* wait for echo to go HIGH */
-    while (!gpio_pinRead(u->echo_port, u->echo_pin))
+    while (gpio_pinRead(u->echo_port, u->echo_pin) == LOW)
     {
-        if (timer_getCount(&t) >= timeout_ticks)
+        if (++timeout > 60000UL)
         {
-            timer_stop(&t);
-            return ULTRASONIC_NO_ECHO;
+            return 0;
         }
     }
 
-    /* time the echo pulse */
-    timer_resetCount(&t);
-
-    while (gpio_pinRead(u->echo_port, u->echo_pin))
+    while (gpio_pinRead(u->echo_port, u->echo_pin) == HIGH)
     {
-        if (timer_getCount(&t) >= timeout_ticks)
+        if (++pulse > 60000UL)
         {
-            timer_stop(&t);
-            return ULTRASONIC_NO_ECHO;
+            return 0;
         }
     }
 
-    timer_stop(&t);
-    ticks = timer_getCount(&t);
-
-    /* distance (cm) = time_us / 58 = ticks / 116 */
-    return (uint16_t)(ticks / 116);
+    return (uint16_t)(pulse / 58UL);
 }
