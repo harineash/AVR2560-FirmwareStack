@@ -1,4 +1,4 @@
-
+```c
 #include <stdint.h>
 
 #include "keypad.h"
@@ -10,13 +10,13 @@
 #include "pwm.h"
 #include "timer.h"
 
-#define MODE_SLOT       0U
-#define MODE_REVERSE    1U
+#define MODE_SLOT       0
+#define MODE_REVERSE    1
+#define MODE_BOTH       2
 
 #define SAMPLE_INTERVAL 25U
-#define BUZZER_DUTY     40U
 
-typedef enum
+enum
 {
     STATUS_NO_ECHO,
     STATUS_SAFE,
@@ -24,9 +24,10 @@ typedef enum
     STATUS_WARNING,
     STATUS_VERY_CLOSE,
     STATUS_STOP
-} ParkingStatus;
+};
 
-/* Keypad: rows PA4-PA7, columns PA0-PA3. */
+/* Hardware configuration */
+
 static Keypad_Config keypad =
 {
     GPIO_PORTA,
@@ -36,13 +37,11 @@ static Keypad_Config keypad =
     "123A456B789C*0#D"
 };
 
-/* LCD: data PC0-PC3, RS PC4, E PC5, RW grounded. */
 static LCD_Config lcd =
 {
     GPIO_PORTC, 4, 5, 0
 };
 
-/* Seven-segment: PF0-PF7 segments, PG0/PG1 digit selects. */
 static SevenSegment_Config display =
 {
     GPIO_PORTF,
@@ -52,7 +51,6 @@ static SevenSegment_Config display =
     0x02
 };
 
-/* Ultrasonic: TRIG PB0, ECHO PB1. */
 static Ultrasonic_Config ultrasonic =
 {
     GPIO_PORTB,
@@ -61,7 +59,6 @@ static Ultrasonic_Config ultrasonic =
     1
 };
 
-/* IR sensor: PK0, active LOW. */
 static IR_Config ir =
 {
     GPIO_PORTK,
@@ -69,7 +66,6 @@ static IR_Config ir =
     IR_ACTIVE_LOW
 };
 
-/* LEDs: PJ0 available, PJ1 occupied. */
 static LED_Config available_led =
 {
     GPIO_PORTJ, 0, HIGH
@@ -80,96 +76,28 @@ static LED_Config occupied_led =
     GPIO_PORTJ, 1, HIGH
 };
 
-/* Buzzer: Timer0 channel A, OC0A/PB7. */
 static PWM_Config buzzer =
 {
-    TIMER0,
-    PWM_CHANNEL_A,
-    BUZZER_DUTY
+    TIMER0, PWM_CHANNEL_A, 40
 };
 
-static uint8_t mode = MODE_SLOT;
-static uint8_t key_latched = 0U;
-static uint8_t buzzer_on = 0U;
-static uint8_t last_slot_state = 2U;
 
-static uint16_t distance_cm = 0U;
-static uint16_t sample_counter = SAMPLE_INTERVAL;
-static uint16_t buzzer_phase = 0U;
-
-/* -------------------------------------------------- */
-/* Buzzer control                                     */
-/* -------------------------------------------------- */
-
-static void buzzer_set(uint8_t enable)
-{
-    if (enable && !buzzer_on)
-    {
-        pwm_setDuty(&buzzer, BUZZER_DUTY);
-        pwm_start(&buzzer);
-        buzzer_on = 1U;
-    }
-    else if (!enable && buzzer_on)
-    {
-        pwm_stop(&buzzer);
-        buzzer_on = 0U;
-    }
-}
-
-static void update_buzzer(ParkingStatus status, uint16_t phase)
-{
-    uint16_t position;
-    uint8_t enable = 0U;
-
-    switch (status)
-    {
-        case STATUS_CAUTION:
-            position = phase % 800U;
-            enable = (position < 100U);
-            break;
-
-        case STATUS_WARNING:
-            position = phase % 500U;
-            enable = (position < 70U) ||
-                     (position >= 140U && position < 210U);
-            break;
-
-        case STATUS_VERY_CLOSE:
-            position = phase % 300U;
-            enable = (position < 50U) ||
-                     (position >= 80U && position < 130U) ||
-                     (position >= 160U && position < 210U);
-            break;
-
-        case STATUS_STOP:
-            enable = 1U;
-            break;
-
-        case STATUS_SAFE:
-        case STATUS_NO_ECHO:
-        default:
-            enable = 0U;
-            break;
-    }
-
-    buzzer_set(enable);
-}
-
-/* -------------------------------------------------- */
-/* Parking-slot functions                             */
-/* -------------------------------------------------- */
+/* Read parking slot occupancy */
 
 static uint8_t read_slot_occupied(void)
 {
     return ir_detected(&ir);
 }
 
+
+/* Update slot indicator LEDs */
+
 static void update_slot_leds(uint8_t occupied)
 {
     if (occupied)
     {
-        led_off(&available_led);
         led_on(&occupied_led);
+        led_off(&available_led);
     }
     else
     {
@@ -178,220 +106,263 @@ static void update_slot_leds(uint8_t occupied)
     }
 }
 
+
+/* Display parking slot status */
+
 static void show_slot_status(uint8_t occupied)
 {
-    lcd_clear(&lcd);
+    lcd_clear();
 
-    lcd_goto(&lcd, 0, 0);
-    lcd_print(&lcd, "PARKING SLOT    ");
+    lcd_goto(0, 0);
+    lcd_print("PARKING SLOT");
 
-    lcd_goto(&lcd, 1, 0);
+    lcd_goto(1, 0);
 
     if (occupied)
     {
-        lcd_print(&lcd, "SLOT OCCUPIED   ");
+        lcd_print("SLOT OCCUPIED");
     }
     else
     {
-        lcd_print(&lcd, "SLOT AVAILABLE  ");
+        lcd_print("SLOT AVAILABLE");
     }
 }
 
-/* -------------------------------------------------- */
-/* Distance classification                            */
-/* -------------------------------------------------- */
 
-static ParkingStatus get_distance_status(uint16_t cm)
+/* Determine reverse-parking warning level */
+
+static uint8_t get_distance_status(uint16_t cm)
 {
-    if (cm == 0U)
-    {
+    if (cm == 0)
         return STATUS_NO_ECHO;
-    }
 
-    if (cm > 30U)
-    {
+    if (cm > 30)
         return STATUS_SAFE;
-    }
 
-    if (cm >= 16U)
-    {
+    if (cm >= 16)
         return STATUS_CAUTION;
-    }
 
-    if (cm >= 10U)
-    {
+    if (cm >= 10)
         return STATUS_WARNING;
-    }
 
-    if (cm >= 5U)
-    {
+    if (cm >= 5)
         return STATUS_VERY_CLOSE;
-    }
 
     return STATUS_STOP;
 }
 
-/* -------------------------------------------------- */
-/* LCD distance output                                */
-/* -------------------------------------------------- */
 
-static void show_distance(uint16_t cm, ParkingStatus status)
+/* Display reverse-parking distance and status */
+
+static void show_distance(uint16_t cm, uint8_t status)
 {
-    lcd_goto(&lcd, 0, 0);
-    lcd_print(&lcd, "DISTANCE:       ");
+    lcd_goto(0, 0);
+    lcd_print("DISTANCE:       ");
 
-    lcd_goto(&lcd, 0, 10);
+    lcd_goto(0, 10);
 
-    if (cm == 0U)
+    if (cm == 0)
     {
-        lcd_print(&lcd, "--cm");
+        lcd_print("--cm");
     }
     else
     {
-        if (cm >= 100U)
+        if (cm >= 100)
         {
-            lcd_data(&lcd, (uint8_t)('0' + (cm / 100U)));
+            lcd_data((char)('0' + (cm / 100U)));
             cm %= 100U;
         }
 
-        if (cm >= 10U)
+        if (cm >= 10)
         {
-            lcd_data(&lcd, (uint8_t)('0' + (cm / 10U)));
+            lcd_data((char)('0' + (cm / 10U)));
         }
         else
         {
-            lcd_data(&lcd, '0');
+            lcd_data('0');
         }
 
-        lcd_data(&lcd, (uint8_t)('0' + (cm % 10U)));
-        lcd_print(&lcd, "cm");
+        lcd_data((char)('0' + (cm % 10U)));
+        lcd_print("cm");
     }
 
-    lcd_goto(&lcd, 1, 0);
+    lcd_goto(1, 0);
 
     switch (status)
     {
-        case STATUS_NO_ECHO:
-            lcd_print(&lcd, "NO ECHO - CHECK ");
-            break;
-
         case STATUS_SAFE:
-            lcd_print(&lcd, "SAFE            ");
+            lcd_print("SAFE            ");
             break;
 
         case STATUS_CAUTION:
-            lcd_print(&lcd, "CAUTION         ");
+            lcd_print("CAUTION         ");
             break;
 
         case STATUS_WARNING:
-            lcd_print(&lcd, "WARNING         ");
+            lcd_print("WARNING         ");
             break;
 
         case STATUS_VERY_CLOSE:
-            lcd_print(&lcd, "VERY CLOSE      ");
+            lcd_print("VERY CLOSE      ");
             break;
 
         case STATUS_STOP:
+            lcd_print("STOP!           ");
+            break;
+
         default:
-            lcd_print(&lcd, "STOP            ");
+            lcd_print("NO ECHO         ");
             break;
     }
 }
 
-/* -------------------------------------------------- */
-/* Main application                                   */
-/* -------------------------------------------------- */
+
+/* Control buzzer according to distance */
+
+static void update_buzzer(uint8_t status, uint16_t phase_ms)
+{
+    uint16_t period;
+    uint16_t on_time;
+
+    switch (status)
+    {
+        case STATUS_SAFE:
+        case STATUS_NO_ECHO:
+            pwm_stop(&buzzer);
+            return;
+
+        case STATUS_CAUTION:
+            period = 800U;
+            on_time = 120U;
+            break;
+
+        case STATUS_WARNING:
+            period = 350U;
+            on_time = 120U;
+            break;
+
+        case STATUS_VERY_CLOSE:
+            period = 180U;
+            on_time = 100U;
+            break;
+
+        case STATUS_STOP:
+            pwm_start(&buzzer);
+            return;
+
+        default:
+            pwm_stop(&buzzer);
+            return;
+    }
+
+    if ((phase_ms % period) < on_time)
+    {
+        pwm_start(&buzzer);
+    }
+    else
+    {
+        pwm_stop(&buzzer);
+    }
+}
+
 
 int main(void)
 {
-    char key;
+    uint8_t mode = MODE_SLOT;
     uint8_t occupied;
-    ParkingStatus status = STATUS_NO_ECHO;
+    uint8_t status = STATUS_NO_ECHO;
+    uint8_t last_occupied = 2U;
+
+    uint16_t distance_cm = 0;
+    uint16_t sample_counter = SAMPLE_INTERVAL;
+    uint16_t phase_ms = 0;
+
+    char key;
+    char last_key = '\0';
+
+    /* Initialize all drivers */
 
     keypad_init(&keypad);
     lcd_init(&lcd);
     seven_segment_init(&display);
     ultrasonic_init(&ultrasonic);
     ir_init(&ir);
-
     led_init(&available_led);
     led_init(&occupied_led);
-
     pwm_init(&buzzer);
-    buzzer_set(0U);
 
-    occupied = read_slot_occupied();
-    last_slot_state = occupied;
+    pwm_stop(&buzzer);
+    seven_segment_off(&display);
 
-    update_slot_leds(occupied);
-    show_slot_status(occupied);
+    show_slot_status(read_slot_occupied());
 
     while (1)
     {
-        /* Process keypad presses. */
+        /* Read keypad with key-press edge detection */
+
         key = keypad_getkey(&keypad);
 
         if (key == '\0')
         {
-            key_latched = 0U;
+            last_key = '\0';
         }
-        else if (!key_latched)
+        else if (key != last_key)
         {
-            key_latched = 1U;
-
-            if (key == 'A' && mode != MODE_SLOT)
+            if (key == 'A')
             {
-                mode = MODE_SLOT;
-                sample_counter = SAMPLE_INTERVAL;
+                /* Slot checking only */
 
-                buzzer_set(0U);
+                mode = MODE_SLOT;
+                last_occupied = 2U;
+
+                pwm_stop(&buzzer);
                 seven_segment_off(&display);
 
-                occupied = read_slot_occupied();
-                last_slot_state = occupied;
-
-                update_slot_leds(occupied);
-                show_slot_status(occupied);
+                show_slot_status(read_slot_occupied());
             }
-            else if (key == 'B' && mode != MODE_REVERSE)
+            else if (key == 'B')
             {
+                /* Reverse parking only */
+
                 mode = MODE_REVERSE;
-                distance_cm = 0U;
+                distance_cm = 0;
                 sample_counter = SAMPLE_INTERVAL;
-                buzzer_phase = 0U;
 
-                buzzer_set(0U);
-                seven_segment_show_number(&display, 0U);
-
-                lcd_clear(&lcd);
-                show_distance(0U, STATUS_NO_ECHO);
+                lcd_clear();
+                seven_segment_off(&display);
             }
+            else if (key == 'C')
+            {
+                /* Slot checking + reverse parking */
+
+                mode = MODE_BOTH;
+                distance_cm = 0;
+                sample_counter = SAMPLE_INTERVAL;
+                last_occupied = 2U;
+
+                lcd_clear();
+            }
+
+            last_key = key;
         }
 
-        /* ------------------------------------------ */
-        /* Parking-slot monitoring mode               */
-        /* ------------------------------------------ */
+        /* Slot checking runs in every mode */
 
-        if (mode == MODE_SLOT)
+        occupied = read_slot_occupied();
+        update_slot_leds(occupied);
+
+        if (mode == MODE_SLOT || mode == MODE_BOTH)
         {
-            occupied = read_slot_occupied();
-            update_slot_leds(occupied);
-
-            if (occupied != last_slot_state)
+            if (last_occupied != occupied)
             {
                 show_slot_status(occupied);
-                last_slot_state = occupied;
+                last_occupied = occupied;
             }
-
-            seven_segment_off(&display);
-            buzzer_set(0U);
         }
 
-        /* ------------------------------------------ */
-        /* Reverse-assistance mode                    */
-        /* ------------------------------------------ */
+        /* Reverse parking runs in B and C modes */
 
-        else
+        if (mode == MODE_REVERSE || mode == MODE_BOTH)
         {
             if (sample_counter >= SAMPLE_INTERVAL)
             {
@@ -399,34 +370,42 @@ int main(void)
                 status = get_distance_status(distance_cm);
 
                 show_distance(distance_cm, status);
-                sample_counter = 0U;
+
+                sample_counter = 0;
             }
 
             /*
-             * Update the displayed number only.
-             * Timer3 handles multiplexing independently.
+             * Keep calling this frequently for the original
+             * polling-based seven-segment driver.
              */
-            if (distance_cm > 99U)
+
+            if (distance_cm == 0)
             {
-                seven_segment_show_number(&display, 99U);
+                seven_segment_off(&display);
             }
             else
             {
                 seven_segment_show_number(
                     &display,
-                    (uint8_t)distance_cm
+                    (distance_cm > 99U)
+                        ? 99U
+                        : (uint8_t)distance_cm
                 );
             }
 
-            update_buzzer(status, buzzer_phase);
+            update_buzzer(status, phase_ms);
 
-            buzzer_phase =
-                (uint16_t)((buzzer_phase + 6U) % 6000U);
+            phase_ms += 6U;
+            sample_counter++;
+        }
+        else
+        {
+            /* Slot-only mode */
 
-            if (sample_counter < SAMPLE_INTERVAL)
-            {
-                sample_counter++;
-            }
+            seven_segment_off(&display);
+            pwm_stop(&buzzer);
+            phase_ms = 0;
         }
     }
 }
+```
