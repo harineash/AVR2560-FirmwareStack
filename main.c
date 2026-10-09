@@ -8,12 +8,13 @@
 #include "ir.h"
 #include "led.h"
 #include "pwm.h"
+#include "timer.h"
 
-#define MODE_SLOT           0U
-#define MODE_REVERSE        1U
+#define MODE_SLOT       0U
+#define MODE_REVERSE    1U
 
-#define DISTANCE_SAMPLE_LOOPS  20U
-#define BUZZER_DUTY            40U
+#define SAMPLE_INTERVAL 25U
+#define BUZZER_DUTY     40U
 
 typedef enum
 {
@@ -35,13 +36,13 @@ static Keypad_Config keypad =
     "123A456B789C*0#D"
 };
 
-/* LCD: data PC0-PC3, RS PC4, E PC5. */
+/* LCD: data PC0-PC3, RS PC4, E PC5, RW grounded. */
 static LCD_Config lcd =
 {
     GPIO_PORTC, 4, 5, 0
 };
 
-/* Seven-segment: segments PF0-PF7, digit selects PG0-PG1. */
+/* Seven-segment: PF0-PF7 segments, PG0/PG1 digit selects. */
 static SevenSegment_Config display =
 {
     GPIO_PORTF,
@@ -79,7 +80,7 @@ static LED_Config occupied_led =
     GPIO_PORTJ, 1, HIGH
 };
 
-/* Buzzer: Timer0 channel A, OC0A / PB7. */
+/* Buzzer: Timer0 channel A, OC0A/PB7. */
 static PWM_Config buzzer =
 {
     TIMER0,
@@ -93,11 +94,11 @@ static uint8_t buzzer_on = 0U;
 static uint8_t last_slot_state = 2U;
 
 static uint16_t distance_cm = 0U;
-static uint16_t sample_counter = DISTANCE_SAMPLE_LOOPS;
+static uint16_t sample_counter = SAMPLE_INTERVAL;
 static uint16_t buzzer_phase = 0U;
 
 /* -------------------------------------------------- */
-/* Buzzer                                             */
+/* Buzzer control                                     */
 /* -------------------------------------------------- */
 
 static void buzzer_set(uint8_t enable)
@@ -155,7 +156,7 @@ static void update_buzzer(ParkingStatus status, uint16_t phase)
 }
 
 /* -------------------------------------------------- */
-/* Parking slot                                       */
+/* Parking-slot functions                             */
 /* -------------------------------------------------- */
 
 static uint8_t read_slot_occupied(void)
@@ -167,8 +168,8 @@ static void update_slot_leds(uint8_t occupied)
 {
     if (occupied)
     {
-        led_on(&occupied_led);
         led_off(&available_led);
+        led_on(&occupied_led);
     }
     else
     {
@@ -179,6 +180,8 @@ static void update_slot_leds(uint8_t occupied)
 
 static void show_slot_status(uint8_t occupied)
 {
+    lcd_clear(&lcd);
+
     lcd_goto(&lcd, 0, 0);
     lcd_print(&lcd, "PARKING SLOT    ");
 
@@ -229,35 +232,49 @@ static ParkingStatus get_distance_status(uint16_t cm)
 }
 
 /* -------------------------------------------------- */
-/* LCD distance display                               */
+/* LCD distance output                                */
 /* -------------------------------------------------- */
 
 static void show_distance(uint16_t cm, ParkingStatus status)
 {
     lcd_goto(&lcd, 0, 0);
-    lcd_print(&lcd, "DIST: ");
+    lcd_print(&lcd, "DISTANCE:       ");
+
+    lcd_goto(&lcd, 0, 10);
 
     if (cm == 0U)
     {
-        lcd_print(&lcd, "--- cm    ");
+        lcd_print(&lcd, "--cm");
     }
     else
     {
-        if (cm > 999U)
+        if (cm >= 100U)
         {
-            cm = 999U;
+            lcd_data(&lcd, (uint8_t)('0' + (cm / 100U)));
+            cm %= 100U;
         }
 
-        lcd_data(&lcd, (uint8_t)('0' + cm / 100U));
-        lcd_data(&lcd, (uint8_t)('0' + (cm / 10U) % 10U));
-        lcd_data(&lcd, (uint8_t)('0' + cm % 10U));
-        lcd_print(&lcd, " cm    ");
+        if (cm >= 10U)
+        {
+            lcd_data(&lcd, (uint8_t)('0' + (cm / 10U)));
+        }
+        else
+        {
+            lcd_data(&lcd, '0');
+        }
+
+        lcd_data(&lcd, (uint8_t)('0' + (cm % 10U)));
+        lcd_print(&lcd, "cm");
     }
 
     lcd_goto(&lcd, 1, 0);
 
     switch (status)
     {
+        case STATUS_NO_ECHO:
+            lcd_print(&lcd, "NO ECHO - CHECK ");
+            break;
+
         case STATUS_SAFE:
             lcd_print(&lcd, "SAFE            ");
             break;
@@ -275,25 +292,21 @@ static void show_distance(uint16_t cm, ParkingStatus status)
             break;
 
         case STATUS_STOP:
-            lcd_print(&lcd, "STOP            ");
-            break;
-
         default:
-            lcd_print(&lcd, "NO ECHO         ");
+            lcd_print(&lcd, "STOP            ");
             break;
     }
 }
 
 /* -------------------------------------------------- */
-/* Main                                               */
+/* Main application                                   */
 /* -------------------------------------------------- */
 
 int main(void)
 {
     char key;
     uint8_t occupied;
-    uint8_t display_value;
-    ParkingStatus status;
+    ParkingStatus status = STATUS_NO_ECHO;
 
     keypad_init(&keypad);
     lcd_init(&lcd);
@@ -315,7 +328,7 @@ int main(void)
 
     while (1)
     {
-        /* Keypad: one action per press. */
+        /* Process keypad presses. */
         key = keypad_getkey(&keypad);
 
         if (key == '\0')
@@ -329,7 +342,7 @@ int main(void)
             if (key == 'A' && mode != MODE_SLOT)
             {
                 mode = MODE_SLOT;
-                sample_counter = DISTANCE_SAMPLE_LOOPS;
+                sample_counter = SAMPLE_INTERVAL;
 
                 buzzer_set(0U);
                 seven_segment_off(&display);
@@ -344,11 +357,11 @@ int main(void)
             {
                 mode = MODE_REVERSE;
                 distance_cm = 0U;
-                sample_counter = DISTANCE_SAMPLE_LOOPS;
+                sample_counter = SAMPLE_INTERVAL;
                 buzzer_phase = 0U;
 
                 buzzer_set(0U);
-                seven_segment_off(&display);
+                seven_segment_show_number(&display, 0U);
 
                 lcd_clear(&lcd);
                 show_distance(0U, STATUS_NO_ECHO);
@@ -356,13 +369,12 @@ int main(void)
         }
 
         /* ------------------------------------------ */
-        /* Parking mode                               */
+        /* Parking-slot monitoring mode               */
         /* ------------------------------------------ */
 
         if (mode == MODE_SLOT)
         {
             occupied = read_slot_occupied();
-
             update_slot_leds(occupied);
 
             if (occupied != last_slot_state)
@@ -376,40 +388,42 @@ int main(void)
         }
 
         /* ------------------------------------------ */
-        /* Reverse mode                               */
+        /* Reverse-assistance mode                    */
         /* ------------------------------------------ */
 
         else
         {
-            /*
-             * Update the sensor reading periodically.
-             * The counter is loop-based, not milliseconds.
-             */
-            if (sample_counter >= DISTANCE_SAMPLE_LOOPS)
+            if (sample_counter >= SAMPLE_INTERVAL)
             {
                 distance_cm = ultrasonic_read_cm(&ultrasonic);
-                sample_counter = 0U;
-
                 status = get_distance_status(distance_cm);
+
                 show_distance(distance_cm, status);
+                sample_counter = 0U;
             }
 
             /*
-             * Refresh both display digits on every loop.
-             * Leading zero is shown for distances below 10 cm.
+             * Update the displayed number only.
+             * Timer3 handles multiplexing independently.
              */
-            display_value = (distance_cm > 99U)
-                          ? 99U
-                          : (uint8_t)distance_cm;
+            if (distance_cm > 99U)
+            {
+                seven_segment_show_number(&display, 99U);
+            }
+            else
+            {
+                seven_segment_show_number(
+                    &display,
+                    (uint8_t)distance_cm
+                );
+            }
 
-            seven_segment_show_number(&display, display_value);
-
-            status = get_distance_status(distance_cm);
             update_buzzer(status, buzzer_phase);
 
-            buzzer_phase = (uint16_t)((buzzer_phase + 2U) % 6000U);
+            buzzer_phase =
+                (uint16_t)((buzzer_phase + 6U) % 6000U);
 
-            if (sample_counter < DISTANCE_SAMPLE_LOOPS)
+            if (sample_counter < SAMPLE_INTERVAL)
             {
                 sample_counter++;
             }
