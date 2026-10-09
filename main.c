@@ -11,7 +11,6 @@
 
 #define MODE_SLOT       0
 #define MODE_REVERSE    1
-
 #define SAMPLE_INTERVAL 25
 
 typedef enum
@@ -87,9 +86,10 @@ static PWM_Config buzzer =
 };
 
 static uint8_t mode = MODE_SLOT;
-static uint8_t last_key_state = 0;
+static uint8_t key_pressed = 0;
 static uint8_t last_slot_state = 2;
 static uint8_t sample_counter = SAMPLE_INTERVAL;
+
 static uint16_t distance_cm = 0;
 static uint16_t phase_ms = 0;
 
@@ -162,29 +162,30 @@ static ParkingStatus get_distance_status(uint16_t cm)
 static void show_distance(uint16_t cm, ParkingStatus status)
 {
     lcd_goto(&lcd, 0, 0);
+    lcd_print(&lcd, "DIST: ");
 
     if (cm == 0)
     {
-        lcd_print(&lcd, "DISTANCE: -- cm ");
+        lcd_print(&lcd, "---");
     }
     else
     {
-        lcd_print(&lcd, "DISTANCE: ");
-
         if (cm >= 100)
         {
             lcd_data(&lcd, (uint8_t)('0' + (cm / 100U)));
-            cm %= 100U;
         }
         else
         {
             lcd_data(&lcd, ' ');
         }
 
+        cm %= 100U;
+
         lcd_data(&lcd, (uint8_t)('0' + (cm / 10U)));
         lcd_data(&lcd, (uint8_t)('0' + (cm % 10U)));
-        lcd_print(&lcd, " cm   ");
     }
+
+    lcd_print(&lcd, " cm    ");
 
     lcd_goto(&lcd, 1, 0);
 
@@ -287,6 +288,7 @@ int main(void)
 
     occupied = read_slot_occupied();
     last_slot_state = occupied;
+
     update_slot_leds(occupied);
     show_slot_status(occupied);
 
@@ -296,11 +298,11 @@ int main(void)
 
         if (key == '\0')
         {
-            last_key_state = 0;
+            key_pressed = 0;
         }
-        else if (!last_key_state)
+        else if (!key_pressed)
         {
-            last_key_state = 1;
+            key_pressed = 1;
 
             if (key == 'A' && mode != MODE_SLOT)
             {
@@ -322,8 +324,8 @@ int main(void)
                 mode = MODE_REVERSE;
                 distance_cm = 0;
                 sample_counter = SAMPLE_INTERVAL;
-
                 phase_ms = 0;
+
                 pwm_stop(&buzzer);
                 seven_segment_off(&display);
 
@@ -364,7 +366,9 @@ int main(void)
             {
                 seven_segment_show_number(
                     &display,
-                    (distance_cm > 99U) ? 99U : (uint8_t)distance_cm
+                    (distance_cm > 99U)
+                        ? 99U
+                        : (uint8_t)distance_cm
                 );
             }
             else
