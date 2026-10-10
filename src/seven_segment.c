@@ -20,12 +20,12 @@ static void display_delay(void)
 }
 
 
-/* Digit selects are active LOW in this version. */
+/* Digit selects are active LOW in this version. 
 static void disable_digits(SevenSegment_Config *display)
 {
     gpio_pinWrite(display->digit_port, 0, HIGH);
     gpio_pinWrite(display->digit_port, 1, HIGH);
-}
+}*/
 
 
 /* Disable only the configured digit-select pins. */
