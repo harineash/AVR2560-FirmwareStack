@@ -1,4 +1,3 @@
-
 #ifndef SEVEN_SEGMENT_H
 #define SEVEN_SEGMENT_H
 
@@ -15,10 +14,8 @@ typedef struct
 } SevenSegment_Config;
 
 void seven_segment_init(SevenSegment_Config *display);
-void seven_segment_show_number(
-    SevenSegment_Config *display,
-    uint8_t number
-);
+void seven_segment_show_number(SevenSegment_Config *display,
+                               uint8_t number);
 void seven_segment_off(SevenSegment_Config *display);
 
 #endif
