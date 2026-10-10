@@ -81,7 +81,7 @@ static PWM_Config buzzer =
 };
 
 
-/* Read slot occupancy */
+/* Read parking-slot occupancy */
 
 static uint8_t read_slot_occupied(void)
 {
@@ -89,7 +89,7 @@ static uint8_t read_slot_occupied(void)
 }
 
 
-/* Update parking indicator LEDs */
+/* Update slot indicator LEDs */
 
 static void update_slot_leds(uint8_t occupied)
 {
@@ -106,27 +106,27 @@ static void update_slot_leds(uint8_t occupied)
 }
 
 
-/* Display slot status in Mode A */
+/* Display parking-slot status */
 
 static void show_slot_status(uint8_t occupied)
 {
-    lcd_goto(0, 0);
-    lcd_print("PARKING SLOT    ");
+    lcd_goto(&lcd, 0, 0);
+    lcd_print(&lcd, "PARKING SLOT    ");
 
-    lcd_goto(1, 0);
+    lcd_goto(&lcd, 1, 0);
 
     if (occupied)
     {
-        lcd_print("SLOT OCCUPIED   ");
+        lcd_print(&lcd, "SLOT OCCUPIED   ");
     }
     else
     {
-        lcd_print("SLOT AVAILABLE  ");
+        lcd_print(&lcd, "SLOT AVAILABLE  ");
     }
 }
 
 
-/* Determine reverse-parking warning */
+/* Determine reverse-parking warning level */
 
 static uint8_t get_distance_status(uint16_t cm)
 {
@@ -149,111 +149,111 @@ static uint8_t get_distance_status(uint16_t cm)
 }
 
 
-/* Print distance; distances above 99 show -- */
+/* Print distance; invalid or >99 cm displays --cm */
 
 static void print_distance(uint16_t cm)
 {
     if (cm == 0U || cm > 99U)
     {
-        lcd_print("--cm");
+        lcd_print(&lcd, "--cm");
     }
     else
     {
-        lcd_data((char)('0' + (cm / 10U)));
-        lcd_data((char)('0' + (cm % 10U)));
-        lcd_print("cm");
+        lcd_data(&lcd, (uint8_t)('0' + cm / 10U));
+        lcd_data(&lcd, (uint8_t)('0' + cm % 10U));
+        lcd_print(&lcd, "cm");
     }
 }
 
 
-/* Display reverse-parking status in Mode B */
+/* Display reverse-parking information */
 
 static void show_distance(uint16_t cm, uint8_t status)
 {
-    lcd_goto(0, 0);
-    lcd_print("DISTANCE:       ");
+    lcd_goto(&lcd, 0, 0);
+    lcd_print(&lcd, "DISTANCE:       ");
 
-    lcd_goto(0, 10);
+    lcd_goto(&lcd, 0, 10);
     print_distance(cm);
 
-    lcd_goto(1, 0);
+    lcd_goto(&lcd, 1, 0);
 
     switch (status)
     {
         case STATUS_SAFE:
-            lcd_print("SAFE            ");
+            lcd_print(&lcd, "SAFE            ");
             break;
 
         case STATUS_CAUTION:
-            lcd_print("CAUTION         ");
+            lcd_print(&lcd, "CAUTION         ");
             break;
 
         case STATUS_WARNING:
-            lcd_print("WARNING         ");
+            lcd_print(&lcd, "WARNING         ");
             break;
 
         case STATUS_VERY_CLOSE:
-            lcd_print("VERY CLOSE      ");
+            lcd_print(&lcd, "VERY CLOSE      ");
             break;
 
         case STATUS_STOP:
-            lcd_print("STOP!           ");
+            lcd_print(&lcd, "STOP!           ");
             break;
 
         default:
-            lcd_print("NO ECHO         ");
+            lcd_print(&lcd, "NO ECHO         ");
             break;
     }
 }
 
 
-/* Display both functions in Mode C */
+/* Display slot status and reverse distance together */
 
 static void show_combined(uint8_t occupied,
                           uint16_t cm,
                           uint8_t status)
 {
-    lcd_goto(0, 0);
+    lcd_goto(&lcd, 0, 0);
 
     if (occupied)
     {
-        lcd_print("SLOT:OCCUPIED   ");
+        lcd_print(&lcd, "SLOT:OCCUPIED   ");
     }
     else
     {
-        lcd_print("SLOT:FREE       ");
+        lcd_print(&lcd, "SLOT:FREE       ");
     }
 
-    lcd_goto(1, 0);
-    lcd_print("D:");
+    lcd_goto(&lcd, 1, 0);
+    lcd_print(&lcd, "D:");
 
     print_distance(cm);
-    lcd_print(" ");
+    lcd_print(&lcd, " ");
 
     switch (status)
     {
         case STATUS_SAFE:
-            lcd_print("SAFE   ");
+            lcd_print(&lcd, "SAFE   ");
             break;
 
         case STATUS_CAUTION:
-            lcd_print("CAUTION");
+            lcd_print(&lcd, "CAUTION");
             break;
 
         case STATUS_WARNING:
-            lcd_print("WARN   ");
+            lcd_print(&lcd, "WARN   ");
             break;
 
         case STATUS_VERY_CLOSE:
-            lcd_print("CLOSE  ");
+            lcd_print(&lcd, "CLOSE  ");
             break;
 
         case STATUS_STOP:
-            lcd_print("STOP!  ");
+            lcd_print(&lcd, "STOP!  ");
             break;
 
         default:
-            lcd_print("NO ECHO");
+            lcd_print(&lcd, "NO ECHO");
             break;
     }
 }
@@ -343,7 +343,7 @@ int main(void)
 
     while (1)
     {
-        /* Keypad edge detection */
+        /* Read keypad and detect new key presses */
 
         key = keypad_getkey(&keypad);
 
@@ -371,7 +371,7 @@ int main(void)
                 sample_counter = SAMPLE_INTERVAL;
                 phase_ms = 0U;
 
-                lcd_clear();
+                lcd_clear(&lcd);
             }
             else if (key == 'C')
             {
@@ -382,13 +382,13 @@ int main(void)
                 last_occupied = 2U;
                 phase_ms = 0U;
 
-                lcd_clear();
+                lcd_clear(&lcd);
             }
 
             last_key = key;
         }
 
-        /* Slot sensor and LEDs always remain active */
+        /* Slot monitoring remains active in every mode */
 
         occupied = read_slot_occupied();
         update_slot_leds(occupied);
@@ -406,11 +406,7 @@ int main(void)
             continue;
         }
 
-        /*
-         * Take a new ultrasonic reading periodically.
-         * The seven-segment driver uses polling, so it
-         * must be refreshed frequently in this loop.
-         */
+        /* Take an ultrasonic reading periodically */
 
         if (sample_counter >= SAMPLE_INTERVAL)
         {
@@ -425,6 +421,8 @@ int main(void)
             sample_counter = 0U;
         }
 
+        /* Combined mode updates both slot and distance display */
+
         if (mode == MODE_BOTH)
         {
             if (last_occupied != occupied ||
@@ -438,10 +436,7 @@ int main(void)
             }
         }
 
-        /*
-         * Numeric display supports only 0-99 cm.
-         * Keep refreshing it during normal operation.
-         */
+        /* Numeric display supports distances from 0 to 99 cm */
 
         if (distance_cm == 0U || distance_cm > 99U)
         {
