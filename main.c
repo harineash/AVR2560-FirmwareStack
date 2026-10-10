@@ -9,9 +9,9 @@
 #include "pwm.h"
 #include "timer.h"
 
-#define MODE_SLOT       0
-#define MODE_REVERSE    1
-#define MODE_BOTH       2
+#define MODE_SLOT       0U
+#define MODE_REVERSE    1U
+#define MODE_BOTH       2U
 
 #define SAMPLE_INTERVAL 25U
 
@@ -81,7 +81,7 @@ static PWM_Config buzzer =
 };
 
 
-/* Read parking slot occupancy */
+/* Read slot occupancy */
 
 static uint8_t read_slot_occupied(void)
 {
@@ -89,7 +89,7 @@ static uint8_t read_slot_occupied(void)
 }
 
 
-/* Update slot indicator LEDs */
+/* Update parking indicator LEDs */
 
 static void update_slot_leds(uint8_t occupied)
 {
@@ -106,52 +106,67 @@ static void update_slot_leds(uint8_t occupied)
 }
 
 
-/* Display parking slot status */
+/* Display slot status in Mode A */
 
 static void show_slot_status(uint8_t occupied)
 {
-    lcd_clear();
-
     lcd_goto(0, 0);
-    lcd_print("PARKING SLOT");
+    lcd_print("PARKING SLOT    ");
 
     lcd_goto(1, 0);
 
     if (occupied)
     {
-        lcd_print("SLOT OCCUPIED");
+        lcd_print("SLOT OCCUPIED   ");
     }
     else
     {
-        lcd_print("SLOT AVAILABLE");
+        lcd_print("SLOT AVAILABLE  ");
     }
 }
 
 
-/* Determine reverse-parking warning level */
+/* Determine reverse-parking warning */
 
 static uint8_t get_distance_status(uint16_t cm)
 {
-    if (cm == 0)
+    if (cm == 0U)
         return STATUS_NO_ECHO;
 
-    if (cm > 30)
+    if (cm > 30U)
         return STATUS_SAFE;
 
-    if (cm >= 16)
+    if (cm >= 16U)
         return STATUS_CAUTION;
 
-    if (cm >= 10)
+    if (cm >= 10U)
         return STATUS_WARNING;
 
-    if (cm >= 5)
+    if (cm >= 5U)
         return STATUS_VERY_CLOSE;
 
     return STATUS_STOP;
 }
 
 
-/* Display reverse-parking distance and status */
+/* Print distance; distances above 99 show -- */
+
+static void print_distance(uint16_t cm)
+{
+    if (cm == 0U || cm > 99U)
+    {
+        lcd_print("--cm");
+    }
+    else
+    {
+        lcd_data((char)('0' + (cm / 10U)));
+        lcd_data((char)('0' + (cm % 10U)));
+        lcd_print("cm");
+    }
+}
+
+
+/* Display reverse-parking status in Mode B */
 
 static void show_distance(uint16_t cm, uint8_t status)
 {
@@ -159,31 +174,7 @@ static void show_distance(uint16_t cm, uint8_t status)
     lcd_print("DISTANCE:       ");
 
     lcd_goto(0, 10);
-
-    if (cm == 0)
-    {
-        lcd_print("--cm");
-    }
-    else
-    {
-        if (cm >= 100)
-        {
-            lcd_data((char)('0' + (cm / 100U)));
-            cm %= 100U;
-        }
-
-        if (cm >= 10)
-        {
-            lcd_data((char)('0' + (cm / 10U)));
-        }
-        else
-        {
-            lcd_data('0');
-        }
-
-        lcd_data((char)('0' + (cm % 10U)));
-        lcd_print("cm");
-    }
+    print_distance(cm);
 
     lcd_goto(1, 0);
 
@@ -216,9 +207,62 @@ static void show_distance(uint16_t cm, uint8_t status)
 }
 
 
+/* Display both functions in Mode C */
+
+static void show_combined(uint8_t occupied,
+                          uint16_t cm,
+                          uint8_t status)
+{
+    lcd_goto(0, 0);
+
+    if (occupied)
+    {
+        lcd_print("SLOT:OCCUPIED   ");
+    }
+    else
+    {
+        lcd_print("SLOT:FREE       ");
+    }
+
+    lcd_goto(1, 0);
+    lcd_print("D:");
+
+    print_distance(cm);
+    lcd_print(" ");
+
+    switch (status)
+    {
+        case STATUS_SAFE:
+            lcd_print("SAFE   ");
+            break;
+
+        case STATUS_CAUTION:
+            lcd_print("CAUTION");
+            break;
+
+        case STATUS_WARNING:
+            lcd_print("WARN   ");
+            break;
+
+        case STATUS_VERY_CLOSE:
+            lcd_print("CLOSE  ");
+            break;
+
+        case STATUS_STOP:
+            lcd_print("STOP!  ");
+            break;
+
+        default:
+            lcd_print("NO ECHO");
+            break;
+    }
+}
+
+
 /* Control buzzer according to distance */
 
-static void update_buzzer(uint8_t status, uint16_t phase_ms)
+static void update_buzzer(uint8_t status,
+                          uint16_t phase_ms)
 {
     uint16_t period;
     uint16_t on_time;
@@ -269,17 +313,17 @@ int main(void)
 {
     uint8_t mode = MODE_SLOT;
     uint8_t occupied;
-    uint8_t status = STATUS_NO_ECHO;
     uint8_t last_occupied = 2U;
+    uint8_t status = STATUS_NO_ECHO;
 
-    uint16_t distance_cm = 0;
+    uint16_t distance_cm = 0U;
     uint16_t sample_counter = SAMPLE_INTERVAL;
-    uint16_t phase_ms = 0;
+    uint16_t phase_ms = 0U;
 
     char key;
     char last_key = '\0';
 
-    /* Initialize all drivers */
+    /* Initialize drivers */
 
     keypad_init(&keypad);
     lcd_init(&lcd);
@@ -293,11 +337,13 @@ int main(void)
     pwm_stop(&buzzer);
     seven_segment_off(&display);
 
-    show_slot_status(read_slot_occupied());
+    occupied = read_slot_occupied();
+    update_slot_leds(occupied);
+    show_slot_status(occupied);
 
     while (1)
     {
-        /* Read keypad with key-press edge detection */
+        /* Keypad edge detection */
 
         key = keypad_getkey(&keypad);
 
@@ -309,35 +355,32 @@ int main(void)
         {
             if (key == 'A')
             {
-                /* Slot checking only */
-
                 mode = MODE_SLOT;
                 last_occupied = 2U;
 
-                pwm_stop(&buzzer);
                 seven_segment_off(&display);
+                pwm_stop(&buzzer);
 
                 show_slot_status(read_slot_occupied());
             }
             else if (key == 'B')
             {
-                /* Reverse parking only */
-
                 mode = MODE_REVERSE;
-                distance_cm = 0;
+                distance_cm = 0U;
+                status = STATUS_NO_ECHO;
                 sample_counter = SAMPLE_INTERVAL;
+                phase_ms = 0U;
 
                 lcd_clear();
-                seven_segment_off(&display);
             }
             else if (key == 'C')
             {
-                /* Slot checking + reverse parking */
-
                 mode = MODE_BOTH;
-                distance_cm = 0;
+                distance_cm = 0U;
+                status = STATUS_NO_ECHO;
                 sample_counter = SAMPLE_INTERVAL;
                 last_occupied = 2U;
+                phase_ms = 0U;
 
                 lcd_clear();
             }
@@ -345,65 +388,76 @@ int main(void)
             last_key = key;
         }
 
-        /* Slot checking runs in every mode */
+        /* Slot sensor and LEDs always remain active */
 
         occupied = read_slot_occupied();
         update_slot_leds(occupied);
 
-        if (mode == MODE_SLOT || mode == MODE_BOTH)
+        if (mode == MODE_SLOT)
         {
             if (last_occupied != occupied)
             {
                 show_slot_status(occupied);
                 last_occupied = occupied;
             }
-        }
-
-        /* Reverse parking runs in B and C modes */
-
-        if (mode == MODE_REVERSE || mode == MODE_BOTH)
-        {
-            if (sample_counter >= SAMPLE_INTERVAL)
-            {
-                distance_cm = ultrasonic_read_cm(&ultrasonic);
-                status = get_distance_status(distance_cm);
-
-                show_distance(distance_cm, status);
-
-                sample_counter = 0;
-            }
-
-            /*
-             * Keep calling this frequently for the original
-             * polling-based seven-segment driver.
-             */
-
-            if (distance_cm == 0)
-            {
-                seven_segment_off(&display);
-            }
-            else
-            {
-                seven_segment_show_number(
-                    &display,
-                    (distance_cm > 99U)
-                        ? 99U
-                        : (uint8_t)distance_cm
-                );
-            }
-
-            update_buzzer(status, phase_ms);
-
-            phase_ms += 6U;
-            sample_counter++;
-        }
-        else
-        {
-            /* Slot-only mode */
 
             seven_segment_off(&display);
             pwm_stop(&buzzer);
-            phase_ms = 0;
+            continue;
         }
+
+        /*
+         * Take a new ultrasonic reading periodically.
+         * The seven-segment driver uses polling, so it
+         * must be refreshed frequently in this loop.
+         */
+
+        if (sample_counter >= SAMPLE_INTERVAL)
+        {
+            distance_cm = ultrasonic_read_cm(&ultrasonic);
+            status = get_distance_status(distance_cm);
+
+            if (mode == MODE_REVERSE)
+            {
+                show_distance(distance_cm, status);
+            }
+
+            sample_counter = 0U;
+        }
+
+        if (mode == MODE_BOTH)
+        {
+            if (last_occupied != occupied ||
+                sample_counter == 0U)
+            {
+                show_combined(occupied,
+                              distance_cm,
+                              status);
+
+                last_occupied = occupied;
+            }
+        }
+
+        /*
+         * Numeric display supports only 0-99 cm.
+         * Keep refreshing it during normal operation.
+         */
+
+        if (distance_cm == 0U || distance_cm > 99U)
+        {
+            seven_segment_off(&display);
+        }
+        else
+        {
+            seven_segment_show_number(
+                &display,
+                (uint8_t)distance_cm
+            );
+        }
+
+        update_buzzer(status, phase_ms);
+
+        phase_ms += 6U;
+        sample_counter++;
     }
 }
