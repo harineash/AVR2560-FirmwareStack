@@ -1,4 +1,3 @@
-```c
 #include <stdint.h>
 
 #include "keypad.h"
@@ -408,4 +407,3 @@ int main(void)
         }
     }
 }
-```
